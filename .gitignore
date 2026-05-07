@@ -1,0 +1,15 @@
+# Hidden / personal config files (.claude/, .vscode/, .idea/, .DS_Store, etc.)
+.*
+
+# Re-include the dotfiles that DO belong in the repo
+!.gitignore
+!.gitattributes
+
+# OS
+Thumbs.db
+
+# KiCad lock/temp files
+*.kicad_sch.lck
+*.kicad_pcb.lck
+*.kicad_pro.lck
+~*.lck

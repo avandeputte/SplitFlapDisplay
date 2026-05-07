@@ -21,18 +21,20 @@ Modules communicate over a shared RS485 bus. A Raspberry Pi running a Python web
 ## Repository Structure
 
 ```
-CAD/                              - 3D printable parts (Bambu Lab profiles included)
-FlapsGenerator/                   - OpenSCAD code to automatically generate (custom) flaps
-SplitFlapDriverATtiny1616 V2 KiCad/  - Driver PCB KiCad that I used in the video, for my build
-SplitFlapDriverATtiny1616V3       - Updated Driver PCB KiCad project, which should be slightly cheaper to manufacture
-SplitFlapBusBoard KiCad/          - Bus board KiCad project
-SplitFlapFirmware/                - Arduino firmware for the PCBs
-SplitFlap-RPI-FRONTEND/           - Raspberry Pi Python web frontend
-Reference Docs/                   - Component datasheets
-BOM.md                            - Bill of materials
+cad/                       - 3D printable parts (Bambu Lab profiles included)
+flaps-generator/           - OpenSCAD code to automatically generate (custom) flaps
+pcb/
+  driver-v2/               - Driver PCB KiCad project used in the video build
+  driver-v3/               - Updated driver PCB KiCad project, slightly cheaper to manufacture
+  bus-board/               - Bus board KiCad project
+  bus-board-5-module/      - 5-module variant of the bus board
+firmware/                  - Arduino firmware for the PCBs
+frontend/                  - Raspberry Pi Python web frontend
+docs/datasheets/           - Component datasheets
+BOM.md                     - Bill of materials
+```
 
 **OnShape Model:** https://cad.onshape.com/documents/87c916b33ca5d6492b457485/w/b3e5f0f05f6619e6e7931347/e/582ef2164e20b0aa994708ab
-```
 
 ---
 
@@ -52,7 +54,7 @@ The driver board is designed to be ordered from JLCPCB with their PCB Assembly (
 
 ### Step 1 — Export Gerbers from KiCad
 
-1. Open the project in `SplitFlapDriverATtiny1616 V2 KiCad/`
+1. Open the project in `pcb/driver-v2/`
 2. In KiCad PCB editor, go to **File → Fabrication Outputs → Gerbers**
 3. Export to a folder, then zip the contents
 4. Also export the drill file from the same menu
@@ -89,7 +91,7 @@ Alternatively, pre-exported Gerber and PCBA files are already be present in the 
 
 ## 3D Printing
 
-All printable files are in the `CAD/` folder. A Bambu Lab print profile is included in `CAD/64FlapsWithLetters/` for the flaps. Print the flaps in the correct colour for each character — see the video for details on the full 64-character set.
+All printable files are in the `cad/` folder. A Bambu Lab print profile is included in `cad/64FlapsWithLetters (parts and bambu print profile)/` for the flaps. Print the flaps in the correct colour for each character — see the video for details on the full 64-character set.
 
 Parts per module:
 - Enclosure Body, Right Cover, Left Cover
@@ -106,7 +108,7 @@ If you want to generate your own flaps, with your own font, size and characters,
 
 ## Firmware
 
-Located in `SplitFlapFirmware/`. The firmware is Arduino-based and targets the ATtiny1616.
+Located in `firmware/`. The firmware is Arduino-based and targets the ATtiny1616.
 
 - Flash via UPDI programmer (see https://github.com/SpenceKonde/AVR-Guidance/blob/master/UPDI/jtag2updi.md if you need to make one)
 - Each module needs a unique address (0–44) stored in EEPROM. Be sure to edit this between flashes.
@@ -115,7 +117,7 @@ Located in `SplitFlapFirmware/`. The firmware is Arduino-based and targets the A
 
 ## Frontend
 
-Located in `SplitFlap-RPI-FRONTEND/`. A Python web interface running on a Raspberry Pi sends display commands over USB-RS485 at 115200 baud.
+Located in `frontend/`. A Python web interface running on a Raspberry Pi sends display commands over USB-RS485 at 115200 baud.
 
 Need a USB-serial dongle. I used this one: https://www.adafruit.com/product/5994
 
