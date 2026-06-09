@@ -6,10 +6,7 @@ Firmware for a multi-module split-flap display where each character cell is an i
 
 ## Table of Contents
 
-- [Hardware Overview](#hardware-overview)
 - [Repository Contents](#repository-contents)
-- [Wiring](#wiring)
-- [Flashing the Firmware](#flashing-the-firmware)
 - [How It Works](#how-it-works)
   - [Module Identity and Provisioning](#module-identity-and-provisioning)
   - [Boot Sequence](#boot-sequence)
@@ -34,21 +31,7 @@ Firmware for a multi-module split-flap display where each character cell is an i
 
 ---
 
-## Hardware Overview
 
-Each module in the display consists of:
-
-| Component | Part |
-|---|---|
-| Microcontroller | ATtiny1616 |
-| Stepper motor | 28BYJ-48 (or equivalent 4-wire unipolar) |
-| Motor driver | ULN2003 driver board |
-| Position sensor | Hall effect sensor (active LOW) |
-| Bus transceiver | RS-485 half-duplex module (e.g. MAX485) |
-
-Multiple modules are daisy-chained on a single RS-485 pair. A single Raspberry Pi with a USB-to-RS-485 adapter controls the entire display.
-
----
 
 ## Repository Contents
 
@@ -60,43 +43,6 @@ README.md                 — This file
 
 ---
 
-## Wiring
-
-### ATtiny1616 Pin Assignments
-
-| Pin | Function |
-|---|---|
-| 1 (PA4) | RS-485 RX (SoftwareSerial) |
-| 2 (PA5) | RS-485 DE — Driver Enable (HIGH = transmit) |
-| 3 (PA6) | RS-485 TX (SoftwareSerial) |
-| 4 (PB3) | Hall effect sensor (active LOW, internal pull-up enabled) |
-| 6 (PC0) | Stepper IN4 |
-| 7 (PC1) | Stepper IN3 |
-| 8 (PC2) | Stepper IN2 |
-| 9 (PC3) | Stepper IN1 |
-
-> **Note:** The DE pin of the RS-485 transceiver must be driven HIGH before transmitting and LOW to return to receive mode. The firmware manages this automatically.
-
-### RS-485 Bus
-
-- Connect all modules' A/B lines in parallel along the bus.
-- Terminate the far end of the bus with a 120 Ω resistor across A and B.
-- Connect the Raspberry Pi's USB-to-RS-485 adapter to the same A/B lines.
-
----
-
-## Flashing the Firmware
-
-The firmware is a standard Arduino sketch targeting the ATtiny1616 via the [megaTinyCore](https://github.com/SpenceKonde/megaTinyCore) board package.
-
-1. Install **megaTinyCore** in the Arduino IDE via Boards Manager.
-2. Select **ATtiny1616** as the target board.
-3. Set the programmer to **jtag2updi** (or whichever UPDI programmer you are using).
-4. Open `splitflapfirmwarev9.ino` and click **Upload**.
-
-Every module runs the same firmware binary. IDs are assigned at runtime via the provisioning tool — there is nothing to change before flashing.
-
----
 
 ## How It Works
 
