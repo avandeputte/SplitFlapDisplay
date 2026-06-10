@@ -45,7 +45,7 @@
 //  d         Dump EEPROM config
 //  e         Erase calibrated flap position map
 //  R         Reset provisioning (erase ID, resume advertising)  [v9+]
-//  v         Report firmware version  → replies m<id>v:<version>\n
+//  v         Report firmware version and serial number  → replies m<id>v:<version>:<moduleId>:<serialNumber>\n
 //  F         Factory-reset EEPROM defaults (preserves module ID and magic byte)
 //
 // Provisioning commands (address mX, all modules respond):
@@ -127,6 +127,16 @@ const uint8_t EEPROM_MAGIC_V8V9 = 0x5E; // recognise but migrate away from
 
 // Firmware version string returned by the 'v' command.
 const char FIRMWARE_VERSION[] = "12";
+
+// ── Deferred reply type — must be declared before any function that uses it ──
+// The Arduino IDE auto-generates forward declarations for all functions; if the
+// enum is defined inside a function body or after a function that references it
+// in its signature the auto-generated prototype will fail to compile.
+enum PendingReply { REPLY_NONE, REPLY_VERSION, REPLY_DUMP };
+
+const unsigned long REPLY_DIRECT_MS = 10UL;  // settling delay for direct-addressed replies
+const unsigned long REPLY_SLOT_MS   = 80UL;  // per-ID slot width for broadcast replies
+                                              // must be > worst-case TX frame time (~45 ms at 9600 baud)
 
 // ==========================================
 //        ATtiny1616 SERIAL NUMBER
@@ -230,6 +240,35 @@ String idBuffer    = "";
 bool   idWildcard  = false;
 bool   idProvision = false;
 
+// ── Non-blocking deferred reply ───────────────────────────────────────────────
+// When a command requires a response (v, d) the parser does NOT transmit
+// immediately.  Instead it records what to send and when, then returns so
+// the main loop keeps draining the RX buffer.  The actual transmission
+// happens in loop() once pendingReplyTime has elapsed.
+//
+// For direct-addressed commands the delay is a short fixed settling time
+// (REPLY_DIRECT_MS) so the Pi has time to switch its transceiver to RX.
+// For broadcast commands each module uses its ID as a time-slot index
+// (moduleId × REPLY_SLOT_MS) so replies arrive sequentially with no
+// overlap.  While waiting, the module keeps reading serial normally.
+
+PendingReply  pendingReply     = REPLY_NONE;
+unsigned long pendingReplyTime = 0;
+
+// Schedule a deferred reply.  isBroadcast=true uses slot-based timing.
+void schedulePendingReply(PendingReply type, bool isBroadcast) {
+  unsigned long delay_ms;
+  if (isBroadcast) {
+    delay_ms = (moduleId != 255)
+      ? (unsigned long)moduleId * REPLY_SLOT_MS
+      : (unsigned long)_MMIO_BYTE(SIGROW_BASE + SERIAL_OFFSET + SERIAL_LEN - 1) * REPLY_SLOT_MS;
+  } else {
+    delay_ms = REPLY_DIRECT_MS;
+  }
+  pendingReply     = type;
+  pendingReplyTime = millis() + delay_ms;
+}
+
 unsigned long lastSerialTime    = 0;
 unsigned long nextAdvertiseTime = 0;
 
@@ -267,9 +306,8 @@ void printModuleId() {
 }
 
 void dumpEeprom() {
-  delay(50);
   digitalWrite(RS485_DE, HIGH);
-  delay(10);
+  delay(2);
 
   rs485.print("m");
   printModuleId();
@@ -291,8 +329,10 @@ void dumpEeprom() {
   }
 
   rs485.print("\n");
-  delay(100);
+  delay(45);   // wait for UART to finish clocking out at 9600 baud
   digitalWrite(RS485_DE, LOW);
+  // Flush echo bytes received while DE was HIGH.
+  while (rs485.available()) rs485.read();
 }
 
 // ==========================================
@@ -318,8 +358,10 @@ bool sendAdvertisement() {
   rs485.print(serialStr);
   rs485.print("\n");
 
-  delay(35);   // ~29 ms to clock 28 chars at 9600 baud + margin
+  delay(45);   // wait for UART to finish clocking out at 9600 baud
   digitalWrite(RS485_DE, LOW);
+  // Flush echo bytes received while DE was HIGH.
+  while (rs485.available()) rs485.read();
   return true;
 }
 
@@ -336,19 +378,29 @@ void resetProvisioning() {
 // ==========================================
 //         VERSION RESPONSE
 // ==========================================
-// Reply format:  m<id>v:<version>\n
-// Example:       m38v:12\n
+// Reply format:  m<id>v:<version>:<moduleId>:<serialNumber>\n
+// Example:       m38v:12:38:A3F24C0018E7D29B3F01\n
+// Unprovisioned: m255v:12:255:A3F24C0018E7D29B3F01\n
+//
+// Called by loop() after the deferred reply timer fires — never called
+// directly from the parser so there are no blocking delays in the RX path.
 void sendVersionResponse() {
-  delay(50);
   digitalWrite(RS485_DE, HIGH);
-  delay(10);
+  delay(2);
   rs485.print("m");
   printModuleId();
   rs485.print("v:");
   rs485.print(FIRMWARE_VERSION);
+  rs485.print(":");
+  rs485.print(moduleId);
+  rs485.print(":");
+  rs485.print(serialStr);
   rs485.print("\n");
-  delay(100);
+  delay(45);   // wait for UART to finish clocking out at 9600 baud
   digitalWrite(RS485_DE, LOW);
+  // Flush any bytes that were echoed into the RX buffer while DE was HIGH.
+  // Without this the parser would attempt to parse our own transmission.
+  while (rs485.available()) rs485.read();
 }
 
 // ==========================================
@@ -457,8 +509,9 @@ void calibrateModule() {
   rs485.print(measuredSteps);
   rs485.print("\n");
 
-  delay(100);
+  delay(45);
   digitalWrite(RS485_DE, LOW);
+  while (rs485.available()) rs485.read();
 
   totalStepsPerRev = measuredSteps;
   saveTotalSteps();
@@ -592,6 +645,18 @@ void setup() {
 
 void loop() {
 
+  // ── Deferred reply (v, d commands) ───────────────────────────────────────
+  // The parser schedules replies rather than sending them inline, so the RX
+  // buffer keeps draining while we wait for our time slot.
+  if (pendingReply != REPLY_NONE && (long)(millis() - pendingReplyTime) >= 0) {
+    switch (pendingReply) {
+      case REPLY_VERSION: sendVersionResponse(); break;
+      case REPLY_DUMP:    dumpEeprom();          break;
+      default: break;
+    }
+    pendingReply = REPLY_NONE;
+  }
+
   // ── Advertisement heartbeat (unprovisioned only) ──────────────────────────
   if (moduleId == 255 && (long)(millis() - nextAdvertiseTime) >= 0) {
     sendAdvertisement();       // CSMA inside; silently drops if bus busy
@@ -649,10 +714,10 @@ void loop() {
               case 'w': buffer = ""; tempIndex = -1; parseState = 9; break;
               case 'i': buffer = ""; parseState = 10; break;
               case 'a': buffer = ""; parseState = 11; break;
-              case 'd': dumpEeprom(); parseState = 0; break;
-              case 'R': resetProvisioning(); parseState = 0; break;
-              case 'v': sendVersionResponse(); parseState = 0; break;
-              case 'F': resetEepromDefaults(); parseState = 0; break;
+              case 'd': schedulePendingReply(REPLY_DUMP,    idWildcard); parseState = 0; break;
+              case 'R': resetProvisioning();                              parseState = 0; break;
+              case 'v': schedulePendingReply(REPLY_VERSION, idWildcard); parseState = 0; break;
+              case 'F': resetEepromDefaults();                            parseState = 0; break;
               case 'e':
                 for (int i = 0; i < 64; i++) {
                   uint16_t empty = 0xFFFF;
@@ -773,8 +838,9 @@ void loop() {
             rs485.print(":");
             rs485.print(moduleId);
             rs485.print("\n");
-            delay(50);
+            delay(45);
             digitalWrite(RS485_DE, LOW);
+            while (rs485.available()) rs485.read();
           }
           snBuffer = ""; snColonSeen = false; buffer = ""; parseState = 0;
         }
